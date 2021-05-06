@@ -1,3 +1,3 @@
 # rua
 
-Rust to lua transpiler
+Rust(subset) to lua transpiler
