@@ -4,7 +4,7 @@ use std::path::Path;
 use syntex_syntax as syntax;
 
 use syntax::ast;
-use syntax::ast::{Arg, Block, Expr};
+use syntax::ast::{Arg, BinOp, Block, Expr};
 use syntax::ast::{ExprKind, ItemKind, LitKind, PatKind, StmtKind};
 use syntax::codemap::FilePathMapping;
 use syntax::parse::ParseSess;
@@ -109,6 +109,14 @@ impl Generator {
         self.push_str("end");
     }
 
+    fn op(&mut self, op: &BinOp, lhs: &P<Expr>, rhs: &P<Expr>) {
+        self.expr(lhs);
+        self.push_str(" ");
+        self.push_str(op.node.to_string());
+        self.push_str(" ");
+        self.expr(rhs);
+    }
+
     fn expr(&mut self, expr: &ast::Expr) {
         match &expr.node {
             ExprKind::Lit(literal) => self.literal(literal),
@@ -118,16 +126,17 @@ impl Generator {
                 self.tuple(args);
             }
             ExprKind::Binary(op, lhs, rhs) => {
-                self.expr(lhs);
-                self.push_str(" ");
-                self.push_str(op.node.to_string());
-                self.push_str(" ");
-                self.expr(rhs);
+                self.op(op, lhs, rhs);
             }
             ExprKind::Assign(a, b) => {
                 self.expr(a);
                 self.push_str(" = ");
                 self.expr(b);
+            }
+            ExprKind::AssignOp(op, a, b) => {
+                self.expr(a);
+                self.push_str(" = ");
+                self.op(op, a, b);
             }
 
             ExprKind::Ret(val) => {

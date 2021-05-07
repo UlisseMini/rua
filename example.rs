@@ -14,8 +14,8 @@ fn main() {
 
     let i = 0;
     loop {
-        // i += 1;
-        i = i + 1;
+        i += 1;
+        i *= 4 / 3;
 
         if i > 5 {
             break;
