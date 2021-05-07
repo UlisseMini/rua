@@ -4,7 +4,7 @@ use std::path::Path;
 use syntex_syntax as syntax;
 
 use syntax::ast;
-use syntax::ast::{Arg, Expr};
+use syntax::ast::{Arg, Block, Expr};
 use syntax::ast::{ExprKind, ItemKind, LitKind, PatKind, StmtKind};
 use syntax::codemap::FilePathMapping;
 use syntax::parse::ParseSess;
@@ -33,11 +33,19 @@ fn main() {
 
 struct Generator {
     buf: String,
+    curr_indent: usize,
 }
 
 impl Generator {
     fn new() -> Self {
-        Self { buf: String::new() }
+        Self {
+            buf: String::new(),
+            curr_indent: 0,
+        }
+    }
+
+    fn indent(&mut self) {
+        self.buf.push_str(&" ".repeat(2 * self.curr_indent));
     }
 
     fn push_str(&mut self, s: &str) {
@@ -62,28 +70,43 @@ impl Generator {
         self.push_str(&format!("{}", ident.name));
     }
 
+    // TODO: deduplicate the code here
+
     fn tuple(&mut self, args: &Vec<P<Expr>>) {
         self.push_str("(");
         for (i, arg) in args.iter().enumerate() {
             self.expr(arg);
-            if i + 1 == args.len() {
-                self.push_str(")");
-            } else {
+            // while not on the last guy, print comma
+            if i + 1 != args.len() {
                 self.push_str(", ");
             }
         }
+        self.push_str(")");
     }
 
     fn args(&mut self, args: &Vec<Arg>) {
         self.push_str("(");
         for (i, arg) in args.iter().enumerate() {
             self.pat(&arg.pat);
-            if i + 1 == args.len() {
-                self.push_str(")");
-            } else {
+            // while not on the last guy, print comma
+            if i + 1 != args.len() {
                 self.push_str(", ");
             }
         }
+        self.push_str(")");
+    }
+
+    fn block(&mut self, block: &P<Block>) {
+        self.curr_indent += 1;
+        for stmt in &block.stmts {
+            self.stmt(stmt);
+        }
+        self.curr_indent -= 1;
+    }
+
+    fn end(&mut self) {
+        self.indent();
+        self.push_str("end");
     }
 
     fn expr(&mut self, expr: &ast::Expr) {
@@ -101,12 +124,41 @@ impl Generator {
                 self.push_str(" ");
                 self.expr(rhs);
             }
+            ExprKind::Assign(a, b) => {
+                self.expr(a);
+                self.push_str(" = ");
+                self.expr(b);
+            }
+
             ExprKind::Ret(val) => {
                 if let Some(ret) = val {
                     self.push_str("return ");
                     self.expr(ret);
                 } else {
                     self.push_str("return");
+                }
+            }
+
+            ExprKind::Loop(block, _) => {
+                self.push_str("while true do\n");
+                self.block(&block);
+                self.end()
+            }
+
+            ExprKind::If(cond, block, _) => {
+                self.push_str("if ");
+                self.expr(cond);
+                self.push_str(" then\n");
+                self.block(&block);
+                self.end()
+            }
+
+            ExprKind::Break(_, expr) => {
+                if let Some(expr) = expr {
+                    self.push_str("break ");
+                    self.expr(expr);
+                } else {
+                    self.push_str("break");
                 }
             }
 
@@ -131,6 +183,7 @@ impl Generator {
     }
 
     fn stmt(&mut self, stmt: &ast::Stmt) {
+        self.indent();
         match &stmt.node {
             StmtKind::Item(item) => self.item(&item),
             StmtKind::Expr(expr) => self.expr(&expr),
@@ -153,6 +206,7 @@ impl Generator {
             // println!("foo {}", 5) -> print(("foo %d"):format(5))
             _ => panic!("unsupported stmt: {:?}", stmt),
         }
+        self.push_str("\n");
     }
 
     fn item(&mut self, item: &ast::Item) {
@@ -161,11 +215,9 @@ impl Generator {
                 self.push_str(&format!("function {}", item.ident.name));
                 self.args(&decl.inputs);
                 self.push_str("\n");
-                for stmt in &block.stmts {
-                    self.stmt(stmt);
-                    self.push_str("\n");
-                }
-                self.push_str("end\n\n");
+                self.block(&block);
+                self.end();
+                self.push_str("\n\n");
             }
 
             _ => panic!("unsupported: {:?}", &item.node),
